@@ -1,122 +1,98 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState, useEffect } from "react";
+import { Login } from "./pages/Login";
+import Home from "./pages/Home";
+import Session from "./pages/Session";
+import Timeline from "./pages/Timeline";
+import "./App.css";
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [student, setStudent] = useState(() => {
+    const saved = localStorage.getItem("student");
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [page, setPage] = useState("home");
+  const [activeProject, setActiveProject] = useState(null);
+  const [activeStage, setActiveStage] = useState(null);
+
+  const handleLogin = (selectedStudent) => {
+    setStudent(selectedStudent);
+    localStorage.setItem("student", JSON.stringify(selectedStudent));
+  };
+
+  const handleLogout = () => {
+    setStudent(null);
+    localStorage.removeItem("student");
+    setPage("home");
+    setActiveProject(null);
+    setActiveStage(null);
+  };
+
+  const handleStartSession = (project, stage) => {
+    setActiveProject(project);
+    setActiveStage(stage);
+    setPage("session");
+  };
+
+  const handleStopSession = () => {
+    setActiveProject(null);
+    setActiveStage(null);
+    setPage("home");
+  };
+
+  if (!student) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="app">
+      {/* Top bar */}
+      <div className="topbar">
+        <div className="topbar-left">
+          <span className="topbar-logo">⚡</span>
+          <span className="topbar-name">Stuencer</span>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
+        <div className="topbar-right">
+          <span className="student-badge">{student.name.split(" ")[0]}</span>
+          <button className="logout-btn" onClick={handleLogout}>
+            Switch
+          </button>
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+      </div>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+      {/* Navigation */}
+      {page !== "session" && (
+        <div className="bottom-nav">
+          <button
+            className={`nav-btn ${page === "home" ? "active" : ""}`}
+            onClick={() => setPage("home")}
+          >
+            🏠 Home
+          </button>
+          <button
+            className={`nav-btn ${page === "timeline" ? "active" : ""}`}
+            onClick={() => setPage("timeline")}
+          >
+            📋 Timeline
+          </button>
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      )}
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      {/* Pages */}
+      <div className="page-content">
+        {page === "home" && (
+          <Home student={student} onStartSession={handleStartSession} />
+        )}
+        {page === "session" && (
+          <Session
+            student={student}
+            project={activeProject}
+            stage={activeStage}
+            onStop={handleStopSession}
+          />
+        )}
+        {page === "timeline" && <Timeline student={student} />}
+      </div>
+    </div>
+  );
 }
-
-export default App

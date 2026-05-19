@@ -73,7 +73,7 @@ export default function Session({ student, project, stage, onStop }) {
           stage: stage.name,
           type: captureType.name,
           image_path: urlData.publicUrl,
-          timestamp: new Date().toISOString(), // See point 3 below!
+          timestamp: Date.now(), // See point 3 below!
           user_id: student.id,
           user_name: student.name,
           source: "mobile",

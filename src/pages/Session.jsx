@@ -64,18 +64,32 @@ export default function Session({ student, project, stage, onStop }) {
           .from("captures")
           .getPublicUrl(`photos/${fileName}`);
 
-        await supabase.from("captures").insert({
+        console.log("USER ID:", student.id);
+
+        const { error: dbError } = await supabase.from("captures").insert({
           id: generateId(),
           project_id: project.id,
           text: note.trim() || "Photo capture",
           stage: stage.name,
           type: captureType.name,
           image_path: urlData.publicUrl,
-          timestamp: Date.now(),
+          timestamp: new Date().toISOString(), // See point 3 below!
           user_id: student.id,
           user_name: student.name,
           source: "mobile",
         });
+
+        if (dbError) {
+          console.error(
+            "Database Insert Error Details:",
+            dbError.message,
+            dbError.details,
+            dbError.hint,
+          );
+          alert(`Database save failed: ${dbError.message}`);
+          setSaving(false);
+          return;
+        }
 
         setSavedCount((c) => c + 1);
         setNote("");
@@ -178,28 +192,88 @@ export default function Session({ student, project, stage, onStop }) {
 
   // ── Note ───────────────────────────────────────────────────────
   const handleSaveNote = async () => {
-    if (!note.trim()) return;
+    console.log("──────── NOTE SAVE START ────────");
+
+    console.log("student:", student);
+    console.log("project:", project);
+    console.log("stage:", stage);
+    console.log("captureType:", captureType);
+
+    console.log("student.id:", student?.id);
+    console.log("student.name:", student?.name);
+
+    if (!note.trim()) {
+      console.log("❌ Empty note");
+      return;
+    }
+
     setSaving(true);
 
-    await supabase.from("captures").insert({
+    const payload = {
       id: generateId(),
-      project_id: project.id,
+
+      project_id: project?.id,
+
       text: note.trim(),
-      stage: stage.name,
-      type: captureType.name,
+
+      stage: stage?.name,
+
+      type: captureType?.name,
+
       image_path: null,
+
       timestamp: Date.now(),
-      user_id: student.id,
-      user_name: student.name,
+
+      user_id: student?.id,
+
+      user_name: student?.name,
+
       source: "mobile",
-    });
+    };
 
-    setSavedCount((c) => c + 1);
-    setNote("");
-    setMode("menu");
+    console.log("📦 PAYLOAD:", payload);
+
+    try {
+      const { data, error } = await supabase
+        .from("captures")
+        .insert(payload)
+        .select();
+
+      console.log("✅ INSERT DATA:", data);
+
+      console.log("❌ INSERT ERROR:", error);
+
+      if (error) {
+        alert("Insert failed: " + error.message);
+
+        console.error("FULL ERROR:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        });
+
+        setSaving(false);
+        return;
+      }
+
+      console.log("✅ SAVE SUCCESS");
+
+      setSavedCount((c) => c + 1);
+
+      setNote("");
+
+      setMode("menu");
+    } catch (err) {
+      console.error("🔥 CATCH ERROR:", err);
+
+      alert("Unexpected error");
+    }
+
     setSaving(false);
-  };
 
+    console.log("──────── NOTE SAVE END ────────");
+  };
   const stopStream = () => {
     stream?.getTracks().forEach((t) => t.stop());
     setStream(null);

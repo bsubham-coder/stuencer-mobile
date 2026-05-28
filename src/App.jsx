@@ -4,6 +4,7 @@ import Home from "./pages/Home";
 import Session from "./pages/Session";
 import Timeline from "./pages/Timeline";
 import GenerateUpdate from "./pages/GenerateUpdate";
+import GenerateProcurementUpdate from "./pages/GenerateProcurementUpdate";
 import ProfessorDashboard from "./pages/ProfessorDashboard";
 import "./App.css";
 
@@ -101,7 +102,14 @@ export default function App() {
             className={`nav-btn ${page === "update" ? "active" : ""}`}
             onClick={() => setPage("update")}
           >
-            📤 Update
+            📤 Progress
+          </button>
+
+          <button
+            className={`nav-btn ${page === "procurement" ? "active" : ""}`}
+            onClick={() => setPage("procurement")}
+          >
+            📦 Procurement
           </button>
         </div>
       )}
@@ -120,6 +128,8 @@ export default function App() {
         )}
         {page === "timeline" && <Timeline student={user} />}
         {page === "update" && <GenerateUpdate student={user} />}
+
+        {page === "procurement" && <GenerateProcurementUpdate student={user} />}
       </div>
     </div>
   );

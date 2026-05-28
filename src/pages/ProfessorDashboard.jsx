@@ -13,32 +13,40 @@ function timeAgo(timestamp) {
 }
 
 export default function ProfessorDashboard({ professor }) {
+  // ── Core state ─────────────────────────────────────────────
   const [view, setView] = useState("updates");
-  const [allUpdates, setAllUpdates] = useState([]);
-  const [pendingProducts, setPendingProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Navigation state
+  // Data
+  const [allUpdates, setAllUpdates] = useState([]);
+  const [procurementUpdates, setProcurementUpdates] = useState([]);
+  // Navigation
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedUpdate, setSelectedUpdate] = useState(null);
-  const [selectedProduct, setSelectedProduct] = useState(null);
 
-  // Comment state
+  // Comments
   const [comment, setComment] = useState("");
   const [comments, setComments] = useState([]);
 
-  // Procurement state
-  const [approvalNote, setApprovalNote] = useState("");
+  // Procurement approval
+
   const [isApproving, setIsApproving] = useState(false);
 
-  useEffect(() => {
-    loadAll();
-  }, []);
-
+  // ── Load data ───────────────────────────────────────────────
   const loadAll = async () => {
+    console.log("LOADING START");
+
     setLoading(true);
-    await Promise.all([loadUpdates(), loadPendingProducts()]);
-    setLoading(false);
+
+    try {
+      await Promise.all([loadUpdates(), loadProcurementUpdates()]);
+
+      console.log("LOADING DONE");
+    } catch (err) {
+      console.error("LOAD ALL ERROR:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadUpdates = async () => {
@@ -46,17 +54,19 @@ export default function ProfessorDashboard({ professor }) {
       .from("updates")
       .select("*")
       .eq("status", "sent")
+      .eq("update_type", "progress")
       .order("created_at", { ascending: false });
     setAllUpdates(data || []);
   };
 
-  const loadPendingProducts = async () => {
+  const loadProcurementUpdates = async () => {
     const { data } = await supabase
-      .from("products")
+      .from("updates")
       .select("*")
-      .eq("approval_status", "pending")
-      .order("timestamp", { ascending: false });
-    setPendingProducts(data || []);
+      .eq("update_type", "procurement")
+      .order("created_at", { ascending: false });
+
+    setProcurementUpdates(data || []);
   };
 
   const loadComments = async (updateId) => {
@@ -68,6 +78,11 @@ export default function ProfessorDashboard({ professor }) {
     setComments(data || []);
   };
 
+  useEffect(() => {
+    loadAll();
+  }, []);
+
+  // ── Handlers ────────────────────────────────────────────────
   const handleSelectUpdate = async (update) => {
     setSelectedUpdate(update);
     await loadComments(update.id);
@@ -86,47 +101,8 @@ export default function ProfessorDashboard({ professor }) {
     await loadComments(selectedUpdate.id);
   };
 
-  const handleApprove = async (product) => {
-    setIsApproving(true);
-    await supabase
-      .from("products")
-      .update({
-        approval_status: "approved",
-        approval_note: approvalNote.trim() || "Approved",
-        approved_by: professor.name,
-        approved_at: Date.now(),
-      })
-      .eq("id", product.id);
-    setApprovalNote("");
-    setSelectedProduct(null);
-    await loadPendingProducts();
-    setIsApproving(false);
-  };
-
-  const handleReject = async (product) => {
-    if (!approvalNote.trim()) {
-      alert("Please add a reason for rejection.");
-      return;
-    }
-    setIsApproving(true);
-    await supabase
-      .from("products")
-      .update({
-        approval_status: "rejected",
-        approval_note: approvalNote.trim(),
-        approved_by: professor.name,
-        approved_at: Date.now(),
-      })
-      .eq("id", product.id);
-    setApprovalNote("");
-    setSelectedProduct(null);
-    await loadPendingProducts();
-    setIsApproving(false);
-  };
-
-  // ── Back button helper ─────────────────────────────────────
-
-  const BackButton = ({ onClick, label = "← Back" }) => (
+  // ── Shared components ───────────────────────────────────────
+  const BackButton = ({ onClick }) => (
     <button
       onClick={onClick}
       style={{
@@ -142,134 +118,17 @@ export default function ProfessorDashboard({ professor }) {
         padding: 0,
       }}
     >
-      {label}
+      ← Back
     </button>
   );
 
-  // ── Procurement detail ─────────────────────────────────────
+  // ── VIEW: Procurement detail ────────────────────────────────
 
-  if (selectedProduct) {
-    return (
-      <div>
-        <BackButton
-          onClick={() => {
-            setSelectedProduct(null);
-            setApprovalNote("");
-          }}
-        />
-        <div className="section-header">Procurement Request</div>
-
-        <div className="card">
-          {selectedProduct.image && (
-            <img
-              src={selectedProduct.image}
-              alt=""
-              style={{
-                width: "100%",
-                borderRadius: 8,
-                marginBottom: 12,
-                maxHeight: 200,
-                objectFit: "contain",
-                background: "#000",
-              }}
-            />
-          )}
-          <div
-            style={{
-              fontSize: 16,
-              fontWeight: 700,
-              color: "#fff",
-              marginBottom: 8,
-            }}
-          >
-            {selectedProduct.title}
-          </div>
-          <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
-            <div>
-              <div style={{ fontSize: 11, color: "#666" }}>Price</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#f59e0b" }}>
-                {selectedProduct.price || "N/A"}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: "#666" }}>Vendor</div>
-              <div style={{ fontSize: 14, color: "#ccc" }}>
-                {selectedProduct.site?.replace("www.", "")}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: "#666" }}>Stage</div>
-              <div style={{ fontSize: 14, color: "#ccc" }}>
-                {selectedProduct.stage}
-              </div>
-            </div>
-          </div>
-          {selectedProduct.note && (
-            <div
-              style={{
-                background: "#1a1a24",
-                borderRadius: 8,
-                padding: "10px 12px",
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>
-                Why student needs this:
-              </div>
-              <div style={{ fontSize: 13, color: "#ddd" }}>
-                {selectedProduct.note}
-              </div>
-            </div>
-          )}
-          <div style={{ fontSize: 12, color: "#666" }}>
-            Requested by {selectedProduct.user_name} ·{" "}
-            {timeAgo(selectedProduct.timestamp)}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="label">
-            Note (optional for approve, required for reject)
-          </div>
-          <textarea
-            className="input"
-            rows={3}
-            placeholder="e.g. Approved — check voltage rating."
-            value={approvalNote}
-            onChange={(e) => setApprovalNote(e.target.value)}
-            style={{ marginTop: 8 }}
-          />
-        </div>
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            className="btn btn-success"
-            onClick={() => handleApprove(selectedProduct)}
-            disabled={isApproving}
-            style={{ flex: 1 }}
-          >
-            ✅ Approve
-          </button>
-          <button
-            className="btn btn-danger"
-            onClick={() => handleReject(selectedProduct)}
-            disabled={isApproving || !approvalNote.trim()}
-            style={{ flex: 1 }}
-          >
-            ❌ Reject
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Update detail view ─────────────────────────────────────
-
+  // ── VIEW: Update detail ─────────────────────────────────────
   if (selectedUpdate) {
-    // Get all updates for this student to show below
-    const studentUpdates = allUpdates
-      .filter((u) => u.user_id === selectedUpdate.user_id)
-      .filter((u) => u.id !== selectedUpdate.id);
+    const previousUpdates = allUpdates.filter(
+      (u) => u.user_id === selectedUpdate.user_id && u.id !== selectedUpdate.id,
+    );
 
     return (
       <div>
@@ -281,7 +140,7 @@ export default function ProfessorDashboard({ professor }) {
           }}
         />
 
-        {/* Update header */}
+        {/* Header */}
         <div className="card">
           <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>
             {timeAgo(selectedUpdate.created_at)}
@@ -301,7 +160,7 @@ export default function ProfessorDashboard({ professor }) {
           </div>
         </div>
 
-        {/* Update content */}
+        {/* Content */}
         <div className="card">
           <div className="label">Update</div>
           <div
@@ -317,9 +176,70 @@ export default function ProfessorDashboard({ professor }) {
           </div>
         </div>
 
+        {/* Photos */}
+        {selectedUpdate.photo_urls?.length > 0 && (
+          <div className="card">
+            <div className="label">
+              Photos ({selectedUpdate.photo_urls.length})
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
+                marginTop: 8,
+              }}
+            >
+              {selectedUpdate.photo_urls.map((url, i) => (
+                <img
+                  key={i}
+                  src={url}
+                  alt=""
+                  onClick={() => window.open(url, "_blank")}
+                  style={{
+                    width: "100%",
+                    borderRadius: 8,
+                    objectFit: "cover",
+                    aspectRatio: "1",
+                    background: "#000",
+                    cursor: "pointer",
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Videos */}
+        {selectedUpdate.video_urls?.length > 0 && (
+          <div className="card">
+            <div className="label">
+              Videos ({selectedUpdate.video_urls.length})
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                marginTop: 8,
+              }}
+            >
+              {selectedUpdate.video_urls.map((url, i) => (
+                <video
+                  key={i}
+                  src={url}
+                  controls
+                  style={{ width: "100%", borderRadius: 8 }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Comments */}
         <div className="card">
           <div className="label">Comments ({comments.length})</div>
+
           {comments.length === 0 ? (
             <div style={{ color: "#555", fontSize: 13, marginTop: 8 }}>
               No comments yet
@@ -346,6 +266,7 @@ export default function ProfessorDashboard({ professor }) {
               ))}
             </div>
           )}
+
           <textarea
             className="input"
             rows={3}
@@ -365,7 +286,7 @@ export default function ProfessorDashboard({ professor }) {
         </div>
 
         {/* Previous updates from same student */}
-        {studentUpdates.length > 0 && (
+        {previousUpdates.length > 0 && (
           <div style={{ marginTop: 8 }}>
             <div
               style={{
@@ -379,7 +300,7 @@ export default function ProfessorDashboard({ professor }) {
             >
               Previous updates from {selectedUpdate.user_name.split(" ")[0]}
             </div>
-            {studentUpdates.map((update) => (
+            {previousUpdates.map((update) => (
               <div
                 key={update.id}
                 className="card"
@@ -428,8 +349,7 @@ export default function ProfessorDashboard({ professor }) {
     );
   }
 
-  // ── Student updates list ───────────────────────────────────
-
+  // ── VIEW: Student updates list ──────────────────────────────
   if (selectedStudent) {
     const studentUpdates = allUpdates.filter(
       (u) => u.user_id === selectedStudent.id,
@@ -533,8 +453,7 @@ export default function ProfessorDashboard({ professor }) {
     );
   }
 
-  // ── Main dashboard ─────────────────────────────────────────
-
+  // ── VIEW: Main dashboard ────────────────────────────────────
   return (
     <div>
       <div
@@ -551,7 +470,7 @@ export default function ProfessorDashboard({ professor }) {
         <div style={{ fontSize: 12, color: "#666" }}>Robotics Lab</div>
       </div>
 
-      {/* Tab bar — only Updates and Procurement */}
+      {/* Tabs */}
       <div
         style={{
           display: "flex",
@@ -566,9 +485,7 @@ export default function ProfessorDashboard({ professor }) {
           { id: "updates", label: "📤 Updates" },
           {
             id: "procurement",
-            label: `📦 Procurement${
-              pendingProducts.length > 0 ? ` (${pendingProducts.length})` : ""
-            }`,
+            label: "📦 Procurement",
           },
         ].map((tab) => (
           <button
@@ -598,7 +515,7 @@ export default function ProfessorDashboard({ professor }) {
         </div>
       ) : (
         <>
-          {/* Updates tab — student cards */}
+          {/* ── Updates tab — one card per student ── */}
           {view === "updates" && (
             <div>
               {STUDENTS.map((student) => {
@@ -606,8 +523,8 @@ export default function ProfessorDashboard({ professor }) {
                   (u) => u.user_id === student.id,
                 );
                 const lastUpdate = studentUpdates[0];
-                const pendingCount = pendingProducts.filter(
-                  (p) => p.user_id === student.id,
+                const pendingCount = procurementUpdates.filter(
+                  (u) => u.user_id === student.id,
                 ).length;
                 const daysSince = lastUpdate
                   ? Math.floor(
@@ -647,7 +564,7 @@ export default function ProfessorDashboard({ professor }) {
                       </div>
 
                       {/* Info */}
-                      <div style={{ flex: 1 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
                         <div
                           style={{
                             fontSize: 14,
@@ -658,7 +575,6 @@ export default function ProfessorDashboard({ professor }) {
                           {student.name}
                         </div>
 
-                        {/* Last update preview */}
                         {lastUpdate ? (
                           <>
                             <div
@@ -697,13 +613,14 @@ export default function ProfessorDashboard({ professor }) {
                           </div>
                         )}
 
-                        {/* Meta row */}
+                        {/* Meta */}
                         <div
                           style={{
                             display: "flex",
                             gap: 8,
                             alignItems: "center",
                             marginTop: 6,
+                            flexWrap: "wrap",
                           }}
                         >
                           {lastUpdate && (
@@ -743,7 +660,7 @@ export default function ProfessorDashboard({ professor }) {
                         </div>
                       </div>
 
-                      {/* Active indicator */}
+                      {/* Active dot */}
                       <div
                         style={{
                           width: 10,
@@ -760,122 +677,106 @@ export default function ProfessorDashboard({ professor }) {
             </div>
           )}
 
-          {/* Procurement tab */}
+          {/* ── Procurement tab — pending approval items ── */}
+
           {view === "procurement" &&
-            (pendingProducts.length === 0 ? (
+            (procurementUpdates.length === 0 ? (
               <div className="empty">
-                <div className="empty-icon">✅</div>
-                <div className="empty-text">All clear</div>
-                <div className="empty-sub">No pending procurement requests</div>
+                <div className="empty-icon">📦</div>
+
+                <div className="empty-text">No procurement updates</div>
               </div>
             ) : (
-              pendingProducts.map((product) => (
-                <div
-                  key={product.id}
-                  className="card"
-                  onClick={() => setSelectedProduct(product)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <div style={{ display: "flex", gap: 12 }}>
-                    {product.image ? (
-                      <img
-                        src={product.image}
-                        alt=""
-                        style={{
-                          width: 64,
-                          height: 64,
-                          objectFit: "contain",
-                          borderRadius: 8,
-                          background: "#000",
-                          flexShrink: 0,
-                        }}
-                      />
-                    ) : (
+              procurementUpdates.map((update) => (
+                <div key={update.id} className="card">
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      marginBottom: 6,
+                      color: "#fff",
+                    }}
+                  >
+                    {update.title}
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "#666",
+                      marginBottom: 12,
+                    }}
+                  >
+                    {update.user_name}
+                    {" · "}
+                    {timeAgo(update.created_at)}
+                  </div>
+
+                  {update.procurement_items?.map((item, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        border: "1px solid #222",
+                        borderRadius: 10,
+                        padding: 12,
+                        marginBottom: 10,
+                      }}
+                    >
+                      {item.image && (
+                        <img
+                          src={item.image}
+                          alt=""
+                          style={{
+                            width: "100%",
+                            borderRadius: 8,
+                            marginBottom: 10,
+                            maxHeight: 180,
+                            objectFit: "contain",
+                            background: "#000",
+                          }}
+                        />
+                      )}
+
                       <div
                         style={{
-                          width: 64,
-                          height: 64,
-                          borderRadius: 8,
-                          background: "#1a1a24",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: 24,
-                          flexShrink: 0,
-                        }}
-                      >
-                        📦
-                      </div>
-                    )}
-                    <div style={{ flex: 1 }}>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: "#fff",
-                          marginBottom: 4,
-                          display: "-webkit-box",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden",
-                        }}
-                      >
-                        {product.title}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 13,
                           fontWeight: 700,
+                          color: "#fff",
+                          marginBottom: 6,
+                        }}
+                      >
+                        {item.title}
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "#aaa",
+                          marginBottom: 4,
+                        }}
+                      >
+                        Vendor: {item.vendor || "N/A"}
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize: 13,
                           color: "#f59e0b",
                           marginBottom: 4,
                         }}
                       >
-                        {product.price || "Price N/A"}
+                        Price: {item.price || "N/A"}
                       </div>
-                      <div style={{ fontSize: 11, color: "#666" }}>
-                        {product.user_name} ·{" "}
-                        {product.site?.replace("www.", "")}
+
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "#aaa",
+                        }}
+                      >
+                        Purpose: {item.note || "N/A"}
                       </div>
                     </div>
-                  </div>
-                  {product.note && (
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color: "#888",
-                        marginTop: 10,
-                        padding: "8px 10px",
-                        background: "#1a1a24",
-                        borderRadius: 6,
-                      }}
-                    >
-                      "{product.note}"
-                    </div>
-                  )}
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginTop: 10,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 11,
-                        background: "rgba(245,158,11,0.1)",
-                        color: "#f59e0b",
-                        border: "1px solid rgba(245,158,11,0.2)",
-                        padding: "2px 8px",
-                        borderRadius: 10,
-                      }}
-                    >
-                      ⏳ Pending approval
-                    </span>
-                    <span style={{ fontSize: 11, color: "#a78bfa" }}>
-                      Tap to review →
-                    </span>
-                  </div>
+                  ))}
                 </div>
               ))
             ))}

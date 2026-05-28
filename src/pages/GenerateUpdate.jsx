@@ -136,17 +136,6 @@ export default function GenerateUpdate({ student }) {
             .join("\n")
         : "";
 
-    const productsSummary =
-      products.length > 0
-        ? `\nPROCUREMENT LOGS (${products.length} items):\n` +
-          products
-            .map(
-              (p, i) =>
-                `${i + 1}. ${p.title || p.name} from ${p.site || "Unknown vendor"} - Cost: ${p.price || "N/A"} - Project Phase: ${p.stage} - Use/Justification: ${p.note || "No details provided"}`,
-            )
-            .join("\n")
-        : "";
-
     const instructionsText = `You are helping an engineering student write a highly concise progress update for their professor.
 
 Student: ${student.name}
@@ -156,7 +145,7 @@ Lab: Robotics Lab
 --- RAW LOG DATA ---
 ${capturesSummary}
 ${filesSummary}
-${productsSummary}
+
 
 Write a structured, ultra-short progress update using clean, direct bullet points. 
 - Eliminate all conversational fluff, long introductory explanations, signatures, and wordy filler sentences.
@@ -168,9 +157,9 @@ Structure the update with these exact numbered sections:
 2. WHAT I DID (Short, direct bullet points listing tasks completed—reference specific logs or actions)
 3. KEY FINDINGS (Brief bullets on structural mechanics baseline settings, measurements, or items finalized)
 4. FILES SUBMITTED (Short list of design files handled, skip if empty)
-5. PROCUREMENT (List parts ordered, vendor channels, pricing milestones, and status, skip if empty)
-6. CHALLENGES (Any mechanical or system design issues, write "None this period" if empty)
-7. NEXT STEPS (Brief bullets outlining immediate action items)`;
+
+5. CHALLENGES (Any mechanical or system design issues, write "None this period" if empty)
+6. NEXT STEPS (Brief bullets outlining immediate action items)`;
 
     const geminiContents = [instructionsText];
     const photosToSend = photoCaptures.slice(0, 5);

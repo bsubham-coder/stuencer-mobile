@@ -1,0 +1,606 @@
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
+import { GoogleGenAI } from "@google/genai";
+
+// Initialize the Google GenAI Client with your API Key
+const ai = new GoogleGenAI({
+  apiKey: import.meta.env.VITE_GEMINI_API_KEY || "YOUR_GEMINI_API_KEY_HERE",
+});
+
+function generateId() {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+export default function GenerateUpdate({ student }) {
+  const [projects, setProjects] = useState([]);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [captures, setCaptures] = useState([]);
+  const [files, setFiles] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [generatedContent, setGeneratedContent] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [step, setStep] = useState("select");
+
+  useEffect(() => {
+    loadProjects();
+  }, []);
+
+  const loadProjects = async () => {
+    const { data } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("user_id", student.id)
+      .order("created_at", { ascending: false });
+    setProjects(data || []);
+  };
+
+  const loadDataSinceLastUpdate = async (projectId) => {
+    const { data: lastUpdateData } = await supabase
+      .from("updates")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("user_id", student.id)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const lastUpdateTime = lastUpdateData?.[0]?.created_at
+      ? new Date(lastUpdateData[0].created_at).getTime()
+      : 0;
+
+    setLastUpdate(lastUpdateData?.[0] || null);
+
+    const { data: capturesData } = await supabase
+      .from("captures")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("user_id", student.id)
+      .order("timestamp", { ascending: true });
+
+    const { data: filesData } = await supabase
+      .from("files")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("user_id", student.id)
+      .order("timestamp", { ascending: true });
+
+    const { data: productsData } = await supabase
+      .from("products")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("user_id", student.id)
+      .order("timestamp", { ascending: true });
+
+    const filteredCaptures = (capturesData || []).filter(
+      (c) => Number(c.timestamp) > lastUpdateTime,
+    );
+    const filteredFiles = (filesData || []).filter(
+      (f) => Number(f.timestamp) > lastUpdateTime,
+    );
+    const filteredProducts = (productsData || []).filter(
+      (p) => Number(p.timestamp) > lastUpdateTime,
+    );
+
+    return { filteredCaptures, filteredFiles, filteredProducts };
+  };
+
+  const handleSelectProject = async (project) => {
+    setSelectedProject(project);
+    const { filteredCaptures, filteredFiles, filteredProducts } =
+      await loadDataSinceLastUpdate(project.id);
+    setCaptures(filteredCaptures);
+    setFiles(filteredFiles);
+    setProducts(filteredProducts);
+    setStep("select");
+    setGeneratedContent("");
+  };
+
+  const handleGenerate = async () => {
+    const totalItems = captures.length + files.length + products.length;
+    if (totalItems === 0) {
+      alert("No new activity since your last update.");
+      return;
+    }
+
+    setIsGenerating(true);
+
+    const photoCaptures = captures.filter(
+      (c) => c.image_path && !c.image_path.includes(".webm"),
+    );
+
+    // Build raw markdown text summaries to feed as context into the AI engine
+    const capturesSummary =
+      captures.length > 0
+        ? `\nCAPTURES (${captures.length}):\n` +
+          captures
+            .map((c, i) => {
+              const mediaTag = c.image_path
+                ? c.image_path.includes(".webm")
+                  ? "[VIDEO]"
+                  : "[PHOTO]"
+                : "[NOTE]";
+              return `${i + 1}. ${mediaTag} [${c.stage}] ${c.text}`;
+            })
+            .join("\n")
+        : "";
+
+    const filesSummary =
+      files.length > 0
+        ? `\nFILES ATTACHED (${files.length}):\n` +
+          files
+            .map(
+              (f, i) =>
+                `${i + 1}. [${f.type.toUpperCase()}] ${f.name} - Stage: ${f.stage} - Note: ${f.note || "no description note"}`,
+            )
+            .join("\n")
+        : "";
+
+    const productsSummary =
+      products.length > 0
+        ? `\nPROCUREMENT LOGS (${products.length} items):\n` +
+          products
+            .map(
+              (p, i) =>
+                `${i + 1}. ${p.title || p.name} from ${p.site || "Unknown vendor"} - Cost: ${p.price || "N/A"} - Project Phase: ${p.stage} - Use/Justification: ${p.note || "No details provided"}`,
+            )
+            .join("\n")
+        : "";
+
+    const instructionsText = `You are helping an engineering student write a highly concise progress update for their professor.
+
+Student: ${student.name}
+Project: ${selectedProject.name}
+Lab: Robotics Lab
+
+--- RAW LOG DATA ---
+${capturesSummary}
+${filesSummary}
+${productsSummary}
+
+Write a structured, ultra-short progress update using clean, direct bullet points. 
+- Eliminate all conversational fluff, long introductory explanations, signatures, and wordy filler sentences.
+- Keep descriptions focused on raw engineering progress.
+- Write in first person as the student.
+
+Structure the update with these exact numbered sections:
+1. SUMMARY (Strictly 1-2 sentences maximum summarizing core progress)
+2. WHAT I DID (Short, direct bullet points listing tasks completed—reference specific logs or actions)
+3. KEY FINDINGS (Brief bullets on structural mechanics baseline settings, measurements, or items finalized)
+4. FILES SUBMITTED (Short list of design files handled, skip if empty)
+5. PROCUREMENT (List parts ordered, vendor channels, pricing milestones, and status, skip if empty)
+6. CHALLENGES (Any mechanical or system design issues, write "None this period" if empty)
+7. NEXT STEPS (Brief bullets outlining immediate action items)`;
+
+    const geminiContents = [instructionsText];
+    const photosToSend = photoCaptures.slice(0, 5);
+
+    // Standardize photo conversion to base64 inline blocks for multimodal ingestion
+    for (const photo of photosToSend) {
+      try {
+        const response = await fetch(photo.image_path);
+        const blob = await response.blob();
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result.split(",")[1]);
+          reader.readAsDataURL(blob);
+        });
+
+        const mimeType = blob.type || "image/jpeg";
+        geminiContents.push(`Visual data context for phase row: ${photo.text}`);
+        geminiContents.push({
+          inlineData: { data: base64, mimeType: mimeType },
+        });
+      } catch (err) {
+        console.error("Could not load and transform log photo context:", err);
+      }
+    }
+
+    // Network safety handler with automated fallback retry for 503 load spikes
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    let responseText = null;
+    let attempts = 2;
+
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: geminiContents,
+          config: {
+            maxOutputTokens: 1500,
+            temperature: 0.2, // Lower temperature keeps formatting strictly anchored to prompt rules
+          },
+        });
+
+        if (response && response.text) {
+          responseText = response.text;
+          break;
+        }
+      } catch (err) {
+        if (
+          (err.status === 503 || err.message?.includes("503")) &&
+          i < attempts - 1
+        ) {
+          console.warn(
+            `API under temporary load spike (503). Retrying script execution in 1.5s...`,
+          );
+          await delay(1500);
+          continue;
+        }
+        console.error("Critical Generation Engine Exception Encountered:", err);
+        alert(
+          `Generation failed: ${err.message || "Server temporarily unavailable"}`,
+        );
+        setIsGenerating(false);
+        return;
+      }
+    }
+
+    if (responseText) {
+      setGeneratedContent(responseText);
+      setStep("preview");
+    } else {
+      alert(
+        "Servers are handling a burst of requests. Please try again in a few moments.",
+      );
+    }
+
+    setIsGenerating(false);
+  };
+
+  const handleSend = async () => {
+    if (!generatedContent.trim()) return;
+    setIsSending(true);
+
+    const now = Date.now();
+    const { error } = await supabase.from("updates").insert({
+      id: generateId(),
+      project_id: selectedProject.id,
+      user_id: student.id,
+      user_name: student.name,
+      title: `${student.name.split(" ")[0]}'s Update — ${new Date().toLocaleDateString()}`,
+      content: generatedContent,
+      week_start: lastUpdate
+        ? new Date(lastUpdate.created_at).getTime()
+        : now - 7 * 24 * 60 * 60 * 1000,
+      week_end: now,
+      status: "sent",
+    });
+
+    if (error) {
+      alert("Failed to send update");
+      setIsSending(false);
+      return;
+    }
+
+    setStep("sent");
+    setIsSending(false);
+  };
+
+  const activePhotos = captures.filter(
+    (c) => c.image_path && !c.image_path.includes(".webm"),
+  );
+  const totalItems = captures.length + files.length + products.length;
+
+  if (step === "sent") {
+    return (
+      <div style={{ textAlign: "center", padding: "48px 16px" }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
+        <div
+          style={{
+            fontSize: 20,
+            fontWeight: 700,
+            color: "#fff",
+            marginBottom: 8,
+          }}
+        >
+          Update Sent!
+        </div>
+        <div style={{ fontSize: 14, color: "#666", marginBottom: 32 }}>
+          Your short progress brief has been committed to the dashboard logs.
+        </div>
+        <button
+          className="btn btn-ghost"
+          onClick={() => {
+            setStep("select");
+            setSelectedProject(null);
+            setGeneratedContent("");
+            setCaptures([]);
+            setFiles([]);
+            setProducts([]);
+          }}
+        >
+          Generate Another
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="section-header">Generate Update</div>
+
+      {/* Project selection card stack */}
+      <div className="card">
+        <div className="label">Select Project</div>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            marginTop: 8,
+          }}
+        >
+          {projects.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => handleSelectProject(p)}
+              style={{
+                padding: "12px 14px",
+                borderRadius: 8,
+                border:
+                  selectedProject?.id === p.id
+                    ? "1.5px solid #7c3aed"
+                    : "1.5px solid #333",
+                background:
+                  selectedProject?.id === p.id
+                    ? "rgba(124,58,237,0.1)"
+                    : "#1a1a24",
+                color: selectedProject?.id === p.id ? "#fff" : "#ccc",
+                cursor: "pointer",
+                textAlign: "left",
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Synchronized Log Activities Analytics Row */}
+      {selectedProject && (
+        <div className="card">
+          <div className="label">Since Last Update</div>
+
+          {totalItems === 0 ? (
+            <div style={{ color: "#666", fontSize: 13, marginTop: 8 }}>
+              No new engineering design work or captures logged in this interval
+              window.
+            </div>
+          ) : (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  marginTop: 12,
+                  marginBottom: 12,
+                }}
+              >
+                {/* Captures Indicator Box */}
+                <div
+                  style={{
+                    flex: 1,
+                    background: "#1a1a30",
+                    borderRadius: 8,
+                    padding: "10px 8px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{ fontSize: 22, fontWeight: 700, color: "#a78bfa" }}
+                  >
+                    {captures.length}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#666", marginTop: 2 }}>
+                    📷 captures
+                  </div>
+                  <div style={{ fontSize: 9, color: "#555", marginTop: 2 }}>
+                    {activePhotos.length} photos ·{" "}
+                    {captures.length - activePhotos.length} vids
+                  </div>
+                </div>
+
+                {/* Files Indicator Box */}
+                <div
+                  style={{
+                    flex: 1,
+                    background: "#1a2430",
+                    borderRadius: 8,
+                    padding: "10px 8px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{ fontSize: 22, fontWeight: 700, color: "#38bdf8" }}
+                  >
+                    {files.length}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#666", marginTop: 2 }}>
+                    📎 files
+                  </div>
+                  <div style={{ fontSize: 9, color: "#555", marginTop: 2 }}>
+                    {files.filter((f) => f.type === "pdf").length} PDFs ·{" "}
+                    {files.filter((f) => f.type !== "pdf").length} CAD/Img
+                  </div>
+                </div>
+
+                {/* Procurement Products Tracking Indicator Box */}
+                <div
+                  style={{
+                    flex: 1,
+                    background: "#241a10",
+                    borderRadius: 8,
+                    padding: "10px 8px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{ fontSize: 22, fontWeight: 700, color: "#f59e0b" }}
+                  >
+                    {products.length}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#666", marginTop: 2 }}>
+                    📦 procurement
+                  </div>
+                  <div style={{ fontSize: 9, color: "#555", marginTop: 2 }}>
+                    {products.length} item total milestones
+                  </div>
+                </div>
+              </div>
+
+              {/* Unique Phase Tags Rendering Cluster */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {[
+                  ...new Set([
+                    ...captures.map((c) => c.stage),
+                    ...files.map((f) => f.stage),
+                    ...products.map((p) => p.stage),
+                  ]),
+                ]
+                  .filter(Boolean)
+                  .map((stage) => (
+                    <span
+                      key={stage}
+                      style={{
+                        fontSize: 11,
+                        background: "#1a1a30",
+                        border: "1px solid #333",
+                        padding: "3px 8px",
+                        borderRadius: 10,
+                        color: "#888",
+                      }}
+                    >
+                      {stage}
+                    </span>
+                  ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Generated output editor review panel */}
+      {step === "preview" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="card">
+            <div className="label">Generated Update</div>
+            <textarea
+              className="input"
+              rows={14}
+              value={generatedContent}
+              onChange={(e) => setGeneratedContent(e.target.value)}
+              style={{
+                marginTop: 8,
+                fontSize: 13,
+                lineHeight: 1.6,
+                fontFamily: "monospace",
+              }}
+            />
+            <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>
+              Review or adjust text elements freely before sending.
+            </div>
+          </div>
+
+          {/* Render real visual components under text blocks so base64 strings display correctly */}
+          {activePhotos.length > 0 && (
+            <div
+              className="card"
+              style={{ background: "#111116", borderColor: "#222" }}
+            >
+              <div
+                className="label"
+                style={{ color: "#f59e0b", marginBottom: 8 }}
+              >
+                🖼️ Linked Visual Attachments ({activePhotos.length})
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  overflowX: "auto",
+                  paddingBottom: 8,
+                }}
+              >
+                {activePhotos.map((photo, index) => (
+                  <div
+                    key={photo.id || index}
+                    style={{
+                      flex: "0 0 160px",
+                      background: "#1e1e24",
+                      borderRadius: 6,
+                      padding: 6,
+                      border: "1px solid #333",
+                    }}
+                  >
+                    <img
+                      src={photo.image_path}
+                      alt="Lab Proof Asset"
+                      style={{
+                        width: "100%",
+                        height: "100px",
+                        objectFit: "cover",
+                        borderRadius: 4,
+                      }}
+                    />
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "#aaa",
+                        marginTop: 4,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {photo.text || `Capture ${index + 1}`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Interactive UI Trigger Buttons */}
+      {selectedProject && totalItems > 0 && step === "select" && (
+        <button
+          className="btn btn-primary"
+          onClick={handleGenerate}
+          disabled={isGenerating}
+        >
+          {isGenerating ? "✨ Compiling Data Matrix..." : "✨ Generate with AI"}
+        </button>
+      )}
+
+      {step === "preview" && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            marginTop: 8,
+          }}
+        >
+          <button
+            className="btn btn-success"
+            onClick={handleSend}
+            disabled={isSending}
+          >
+            {isSending ? "Sending..." : "📤 Send to Professor"}
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={handleGenerate}
+            disabled={isGenerating}
+          >
+            {isGenerating ? "Regenerating..." : "↺ Regenerate"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

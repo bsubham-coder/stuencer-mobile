@@ -92,18 +92,17 @@ export default function Session({
           .from("captures")
           .getPublicUrl(`photos/${fileName}`);
 
-        const { error: dbError } = await supabase.from("updates").insert({
+        const { error: dbError } = await supabase.from("captures").insert({
           id: generateId(),
           project_id: project?.id || null,
-          title: `${captureType.emoji} ${captureType.name} - ${stage.name}`,
-          content: note.trim() || "Photo progress snapshot",
-          status: "sent",
-          update_type: "progress",
-          photo_urls: [urlData.publicUrl],
-          video_urls: [],
-          created_at: new Date().toISOString(),
+          text: note.trim() || "Photo capture",
+          stage: stage.name,
+          type: captureType.name,
+          image_path: urlData.publicUrl,
+          timestamp: Date.now(),
           user_id: student.id,
           user_name: student.name,
+          source: "mobile",
         });
 
         if (dbError) {
@@ -185,18 +184,17 @@ export default function Session({
       .from("captures")
       .getPublicUrl(`videos/${fileName}`);
 
-    const { error: dbError } = await supabase.from("updates").insert({
+    const { error: dbError } = await supabase.from("captures").insert({
       id: generateId(),
       project_id: project?.id || null,
-      title: `${captureType.emoji} ${captureType.name} Video Log`,
-      content: note.trim() || "Video progress clip",
-      status: "sent",
-      update_type: "progress",
-      photo_urls: [],
-      video_urls: [urlData.publicUrl],
-      created_at: new Date().toISOString(),
+      text: note.trim() || "Video capture",
+      stage: stage.name,
+      type: captureType.name,
+      image_path: urlData.publicUrl,
+      timestamp: Date.now(),
       user_id: student.id,
       user_name: student.name,
+      source: "mobile",
     });
 
     if (dbError) {
@@ -214,18 +212,17 @@ export default function Session({
     setSaving(true);
 
     try {
-      const { error } = await supabase.from("updates").insert({
+      const { error } = await supabase.from("captures").insert({
         id: generateId(),
         project_id: project?.id || null,
-        title: `${captureType.emoji} Text Note - ${stage.name}`,
-        content: note.trim(),
-        status: "sent",
-        update_type: "progress",
-        photo_urls: [],
-        video_urls: [],
-        created_at: new Date().toISOString(),
-        user_id: student?.id,
-        user_name: student?.name,
+        text: note.trim(),
+        stage: stage.name,
+        type: captureType.name,
+        image_path: null,
+        timestamp: Date.now(),
+        user_id: student.id,
+        user_name: student.name,
+        source: "mobile",
       });
 
       if (error) throw error;

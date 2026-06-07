@@ -275,19 +275,23 @@ export default function Session({
       </div>
       <textarea
         className="input"
-        rows={3}
-        placeholder="What did you observe or do?"
+        rows={4}
+        placeholder="Type your notes or description here..."
         value={note}
         onChange={(e) => setNote(e.target.value)}
         style={{
           width: "100%",
-          background: "#1a1a24",
+          background: "#14141c",
           color: "#fff",
-          border: "1px solid #333",
-          borderRadius: 8,
-          padding: "10px 12px",
+          border: "1px solid #2a2a3a",
+          borderRadius: 10,
+          padding: "12px 14px",
           fontSize: 14,
-          resize: "none",
+          lineHeight: "1.5",
+          resize: "vertical",
+          outline: "none",
+          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
+          fontFamily: "inherit",
         }}
         autoFocus
       />

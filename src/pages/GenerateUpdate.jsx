@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { GoogleGenAI } from "@google/genai";
 
-// Initialize the Google GenAI Client with your API Key
 const ai = new GoogleGenAI({
   apiKey: import.meta.env.VITE_GEMINI_API_KEY || "YOUR_GEMINI_API_KEY_HERE",
 });
@@ -45,19 +44,18 @@ export default function GenerateUpdate({ student }) {
       .order("created_at", { ascending: false })
       .limit(1);
 
-    const lastUpdateTime = lastUpdateData?.[0]?.created_at
-      ? new Date(lastUpdateData[0].created_at).getTime()
-      : 0;
-
     setLastUpdate(lastUpdateData?.[0] || null);
 
+    // 🌟 FIX: Only fetch captures that haven't been linked to an update yet
     const { data: capturesData } = await supabase
       .from("captures")
       .select("*")
       .eq("project_id", projectId)
       .eq("user_id", student.id)
+      .is("update_id", null)
       .order("timestamp", { ascending: true });
 
+    // Only fetch unlinked queue files
     const { data: filesData } = await supabase
       .from("files")
       .select("*")
@@ -72,17 +70,11 @@ export default function GenerateUpdate({ student }) {
       .eq("user_id", student.id)
       .order("timestamp", { ascending: true });
 
-    const filteredCaptures = (capturesData || []).filter(
-      (c) => Number(c.timestamp) > lastUpdateTime,
-    );
-    const filteredFiles = (filesData || []).filter(
-      (f) => Number(f.timestamp) > lastUpdateTime,
-    );
-    const filteredProducts = (productsData || []).filter(
-      (p) => Number(p.timestamp) > lastUpdateTime,
-    );
-
-    return { filteredCaptures, filteredFiles, filteredProducts };
+    return {
+      filteredCaptures: capturesData || [],
+      filteredFiles: filesData || [],
+      filteredProducts: productsData || [],
+    };
   };
 
   const handleSelectProject = async (project) => {
@@ -109,7 +101,6 @@ export default function GenerateUpdate({ student }) {
       (c) => c.image_path && !c.image_path.includes(".webm"),
     );
 
-    // Build raw markdown text summaries to feed as context into the AI engine
     const capturesSummary =
       captures.length > 0
         ? `\nCAPTURES (${captures.length}):\n` +
@@ -146,7 +137,6 @@ Lab: Robotics Lab
 ${capturesSummary}
 ${filesSummary}
 
-
 Write a structured, ultra-short progress update using clean, direct bullet points. 
 - Eliminate all conversational fluff, long introductory explanations, signatures, and wordy filler sentences.
 - Keep descriptions focused on raw engineering progress.
@@ -157,14 +147,12 @@ Structure the update with these exact numbered sections:
 2. WHAT I DID (Short, direct bullet points listing tasks completed—reference specific logs or actions)
 3. KEY FINDINGS (Brief bullets on structural mechanics baseline settings, measurements, or items finalized)
 4. FILES SUBMITTED (Short list of design files handled, skip if empty)
-
 5. CHALLENGES (Any mechanical or system design issues, write "None this period" if empty)
 6. NEXT STEPS (Brief bullets outlining immediate action items)`;
 
     const geminiContents = [instructionsText];
     const photosToSend = photoCaptures.slice(0, 5);
 
-    // Standardize photo conversion to base64 inline blocks for multimodal ingestion
     for (const photo of photosToSend) {
       try {
         const response = await fetch(photo.image_path);
@@ -185,7 +173,6 @@ Structure the update with these exact numbered sections:
       }
     }
 
-    // Network safety handler with automated fallback retry for 503 load spikes
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     let responseText = null;
     let attempts = 2;
@@ -197,7 +184,7 @@ Structure the update with these exact numbered sections:
           contents: geminiContents,
           config: {
             maxOutputTokens: 1500,
-            temperature: 0.2, // Lower temperature keeps formatting strictly anchored to prompt rules
+            temperature: 0.2,
           },
         });
 
@@ -210,16 +197,12 @@ Structure the update with these exact numbered sections:
           (err.status === 503 || err.message?.includes("503")) &&
           i < attempts - 1
         ) {
-          console.warn(
-            `API under temporary load spike (503). Retrying script execution in 1.5s...`,
-          );
+          console.warn(`API under temporary load spike (503). Retrying...`);
           await delay(1500);
           continue;
         }
-        console.error("Critical Generation Engine Exception Encountered:", err);
-        alert(
-          `Generation failed: ${err.message || "Server temporarily unavailable"}`,
-        );
+        console.error("Critical Generation Engine Exception:", err);
+        alert(`Generation failed: ${err.message}`);
         setIsGenerating(false);
         return;
       }
@@ -229,21 +212,44 @@ Structure the update with these exact numbered sections:
       setGeneratedContent(responseText);
       setStep("preview");
     } else {
-      alert(
-        "Servers are handling a burst of requests. Please try again in a few moments.",
-      );
+      alert("Servers are handling a burst of requests. Please try again.");
     }
-
     setIsGenerating(false);
   };
 
+  // 🟢 MAJOR FIX: Clear or mark files as processed and link them to the updates data row
   const handleSend = async () => {
     if (!generatedContent.trim()) return;
     setIsSending(true);
 
     const now = Date.now();
+    const updateId = generateId();
+
+    // Gather photo and video URLs from current captures state
+    const photoUrls = captures
+      .filter((c) => c.image_path && !c.image_path.includes(".webm"))
+      .map((c) => c.image_path);
+
+    const videoUrls = captures
+      .filter((c) => c.image_path?.includes(".webm"))
+      .map((c) => c.image_path);
+
+    const linkedFilesMetadata = files.map((f) => ({
+      id: f.id,
+      name: f.name,
+      type: f.type,
+      url: f.url || f.file_path || "",
+    }));
+
+    // 🌟 ADD THIS LOG RIGHT HERE:
+    console.log(
+      "--- DEBUG FILES METADATA BEFORE SENDING ---",
+      linkedFilesMetadata,
+    );
+
+    // 1. Insert update into Supabase (Includes ALL your dashboard filters + media arrays)
     const { error } = await supabase.from("updates").insert({
-      id: generateId(),
+      id: updateId,
       project_id: selectedProject.id,
       user_id: student.id,
       user_name: student.name,
@@ -254,14 +260,54 @@ Structure the update with these exact numbered sections:
         : now - 7 * 24 * 60 * 60 * 1000,
       week_end: now,
       status: "sent",
+      update_type: "progress",
+      photo_urls: photoUrls,
+      video_urls: videoUrls,
+      files_attached: linkedFilesMetadata,
     });
 
     if (error) {
-      alert("Failed to send update");
+      alert("Failed to send update: " + error.message);
       setIsSending(false);
       return;
     }
 
+    // 2. 🌟 NEW: Link current captures to this update so they disappear from the "new" queue
+    if (captures.length > 0) {
+      const captureIds = captures.map((c) => c.id);
+      const { error: captureUpdateError } = await supabase
+        .from("captures")
+        .update({ update_id: updateId })
+        .in("id", captureIds);
+
+      if (captureUpdateError) {
+        console.error(
+          "Warning: Failed to mark captures as processed:",
+          captureUpdateError,
+        );
+      }
+    }
+
+    // 3. Clear out the files queue from the table completely
+    if (files.length > 0) {
+      const fileIdsToDelete = files.map((f) => f.id);
+      const { error: deleteError } = await supabase
+        .from("files")
+        .delete()
+        .in("id", fileIdsToDelete);
+
+      if (deleteError) {
+        console.error(
+          "Warning: Failed to clear files from queue:",
+          deleteError,
+        );
+      }
+    }
+
+    // 4. Reset local component UI states
+    setCaptures([]);
+    setFiles([]);
+    setProducts([]);
     setStep("sent");
     setIsSending(false);
   };
@@ -309,7 +355,6 @@ Structure the update with these exact numbered sections:
     <div>
       <div className="section-header">Generate Update</div>
 
-      {/* Project selection card stack */}
       <div className="card">
         <div className="label">Select Project</div>
         <div
@@ -348,7 +393,6 @@ Structure the update with these exact numbered sections:
         </div>
       </div>
 
-      {/* Synchronized Log Activities Analytics Row */}
       {selectedProject && (
         <div className="card">
           <div className="label">Since Last Update</div>
@@ -368,7 +412,6 @@ Structure the update with these exact numbered sections:
                   marginBottom: 12,
                 }}
               >
-                {/* Captures Indicator Box */}
                 <div
                   style={{
                     flex: 1,
@@ -392,7 +435,6 @@ Structure the update with these exact numbered sections:
                   </div>
                 </div>
 
-                {/* Files Indicator Box */}
                 <div
                   style={{
                     flex: 1,
@@ -416,7 +458,6 @@ Structure the update with these exact numbered sections:
                   </div>
                 </div>
 
-                {/* Procurement Products Tracking Indicator Box */}
                 <div
                   style={{
                     flex: 1,
@@ -440,7 +481,6 @@ Structure the update with these exact numbered sections:
                 </div>
               </div>
 
-              {/* Unique Phase Tags Rendering Cluster */}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {[
                   ...new Set([
@@ -471,7 +511,6 @@ Structure the update with these exact numbered sections:
         </div>
       )}
 
-      {/* Generated output editor review panel */}
       {step === "preview" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="card">
@@ -488,12 +527,44 @@ Structure the update with these exact numbered sections:
                 fontFamily: "monospace",
               }}
             />
-            <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>
-              Review or adjust text elements freely before sending.
-            </div>
           </div>
 
-          {/* Render real visual components under text blocks so base64 strings display correctly */}
+          {/* Render files preview block inside the UI preview stack */}
+          {files.length > 0 && (
+            <div
+              className="card"
+              style={{ background: "#111622", borderColor: "#234" }}
+            >
+              <div
+                className="label"
+                style={{ color: "#38bdf8", marginBottom: 8 }}
+              >
+                📎 Attached Documents Queue ({files.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {files.map((file) => (
+                  <div
+                    key={file.id}
+                    style={{
+                      fontSize: 12,
+                      color: "#ccc",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      background: "rgba(255,255,255,0.02)",
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                    }}
+                  >
+                    <span>📄 {file.name}</span>
+                    <span style={{ color: "#555", fontSize: 11 }}>
+                      [{file.stage}]
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {activePhotos.length > 0 && (
             <div
               className="card"
@@ -554,7 +625,6 @@ Structure the update with these exact numbered sections:
         </div>
       )}
 
-      {/* Interactive UI Trigger Buttons */}
       {selectedProject && totalItems > 0 && step === "select" && (
         <button
           className="btn btn-primary"

@@ -235,7 +235,103 @@ export default function ProfessorDashboard({ professor }) {
             </div>
           </div>
         )}
+        {/* Files Attached Section */}
+        {(() => {
+          // Parse the files array safely out of the JSON string structure
+          let parsedFiles = [];
+          try {
+            if (selectedUpdate.files_attached) {
+              parsedFiles =
+                typeof selectedUpdate.files_attached === "string"
+                  ? JSON.parse(selectedUpdate.files_attached)
+                  : selectedUpdate.files_attached;
+            }
+          } catch (err) {
+            console.error(
+              "Failed to parse files_attached JSON array data:",
+              err,
+            );
+          }
 
+          // Only render the layout container card if files actually exist inside the array
+          if (!Array.isArray(parsedFiles) || parsedFiles.length === 0)
+            return null;
+
+          return (
+            <div className="card">
+              <div className="label">
+                Attached Documents ({parsedFiles.length})
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  marginTop: 8,
+                }}
+              >
+                {parsedFiles.map((file) => {
+                  // Normalize matching properties so it works whether keys are snake_case or camelCase
+                  const targetUrl = file.url || file.file_path || file.filePath;
+
+                  return (
+                    <a
+                      key={file.id || Math.random().toString()}
+                      href={targetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "10px 12px",
+                        background: "#1a1a24",
+                        borderRadius: 8,
+                        textDecoration: "none",
+                        border: "1px solid #222230",
+                        transition: "border-color 0.2s",
+                      }}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.borderColor = "#7c3aed")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.borderColor = "#222230")
+                      }
+                    >
+                      <span style={{ fontSize: 18 }}>📄</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 500,
+                            color: "#fff",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {file.name || "Untitled File"}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#666",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {file.type?.split("/")?.[1] || "document"}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 12, color: "#a78bfa" }}>
+                        Open ↗
+                      </span>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         {/* Comments */}
         <div className="card">
           <div className="label">Comments ({comments.length})</div>

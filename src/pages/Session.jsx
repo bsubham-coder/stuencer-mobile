@@ -6,8 +6,14 @@ function generateId() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-export default function Session({ student, project, stage, onStop }) {
-  const [mode, setMode] = useState("menu"); // menu | photo | video | note
+export default function Session({
+  student,
+  project,
+  stage,
+  onStop,
+  onUpdateSubmitted,
+}) {
+  const [mode, setMode] = useState("menu");
   const [note, setNote] = useState("");
   const [captureType, setCaptureType] = useState(CAPTURE_TYPES[0]);
   const [saving, setSaving] = useState(false);
@@ -21,7 +27,21 @@ export default function Session({ student, project, stage, onStop }) {
   const chunksRef = useRef([]);
   const timerRef = useRef();
 
-  // ── Photo ──────────────────────────────────────────────────────
+  // Helper function to handle post-success cleanup and trigger timeline sync
+  const handleSuccessUpload = () => {
+    setSavedCount((c) => c + 1);
+    setNote("");
+    stopStream();
+    setMode("menu");
+    setSaving(false);
+
+    // Trigger callback to parent layout to let Timeline.jsx know it should refetch data
+    if (typeof onUpdateSubmitted === "function") {
+      onUpdateSubmitted();
+    }
+  };
+
+  // ── Photo Handling ─────────────────────────────────────────────
   const handleTakePhoto = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -36,11 +56,14 @@ export default function Session({ student, project, stage, onStop }) {
         }
       }, 100);
     } catch (err) {
-      alert("Camera access denied. Please allow camera in browser settings.");
+      alert("Camera access denied.");
     }
   };
 
   const handleCapturePhoto = async () => {
+    if (!videoRef.current) return;
+    setSaving(true);
+
     const canvas = document.createElement("canvas");
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
@@ -48,9 +71,14 @@ export default function Session({ student, project, stage, onStop }) {
 
     canvas.toBlob(
       async (blob) => {
-        setSaving(true);
+        if (!blob) {
+          alert("Failed to process photo stream capture.");
+          setSaving(false);
+          return;
+        }
+
         const fileName = `${generateId()}.jpg`;
-        const { data, error } = await supabase.storage
+        const { error } = await supabase.storage
           .from("captures")
           .upload(`photos/${fileName}`, blob, { contentType: "image/jpeg" });
 
@@ -64,45 +92,34 @@ export default function Session({ student, project, stage, onStop }) {
           .from("captures")
           .getPublicUrl(`photos/${fileName}`);
 
-        console.log("USER ID:", student.id);
-
-        const { error: dbError } = await supabase.from("captures").insert({
+        const { error: dbError } = await supabase.from("updates").insert({
           id: generateId(),
-          project_id: project.id,
-          text: note.trim() || "Photo capture",
-          stage: stage.name,
-          type: captureType.name,
-          image_path: urlData.publicUrl,
-          timestamp: Date.now(), // See point 3 below!
+          project_id: project?.id || null,
+          title: `${captureType.emoji} ${captureType.name} - ${stage.name}`,
+          content: note.trim() || "Photo progress snapshot",
+          status: "sent",
+          update_type: "progress",
+          photo_urls: [urlData.publicUrl],
+          video_urls: [],
+          created_at: new Date().toISOString(),
           user_id: student.id,
           user_name: student.name,
-          source: "mobile",
         });
 
         if (dbError) {
-          console.error(
-            "Database Insert Error Details:",
-            dbError.message,
-            dbError.details,
-            dbError.hint,
-          );
           alert(`Database save failed: ${dbError.message}`);
           setSaving(false);
           return;
         }
 
-        setSavedCount((c) => c + 1);
-        setNote("");
-        stopStream();
-        setMode("menu");
-        setSaving(false);
+        handleSuccessUpload();
       },
       "image/jpeg",
       0.85,
     );
   };
 
-  // ── Video ──────────────────────────────────────────────────────
+  // ── Video Handling ─────────────────────────────────────────────
   const handleStartVideo = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -126,14 +143,12 @@ export default function Session({ student, project, stage, onStop }) {
     chunksRef.current = [];
     const recorder = new MediaRecorder(stream);
     mediaRecorderRef.current = recorder;
-
     recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
     recorder.onstop = handleVideoSave;
     recorder.start();
     setRecording(true);
     setTimeLeft(60);
 
-    // Auto stop at 60 seconds
     let seconds = 60;
     timerRef.current = setInterval(() => {
       seconds -= 1;
@@ -170,110 +185,57 @@ export default function Session({ student, project, stage, onStop }) {
       .from("captures")
       .getPublicUrl(`videos/${fileName}`);
 
-    await supabase.from("captures").insert({
+    const { error: dbError } = await supabase.from("updates").insert({
       id: generateId(),
-      project_id: project.id,
-      text: note.trim() || "Video capture",
-      stage: stage.name,
-      type: captureType.name,
-      image_path: urlData.publicUrl,
-      timestamp: Date.now(),
+      project_id: project?.id || null,
+      title: `${captureType.emoji} ${captureType.name} Video Log`,
+      content: note.trim() || "Video progress clip",
+      status: "sent",
+      update_type: "progress",
+      photo_urls: [],
+      video_urls: [urlData.publicUrl],
+      created_at: new Date().toISOString(),
       user_id: student.id,
       user_name: student.name,
-      source: "mobile",
     });
 
-    setSavedCount((c) => c + 1);
-    setNote("");
-    stopStream();
-    setMode("menu");
-    setSaving(false);
-  };
-
-  // ── Note ───────────────────────────────────────────────────────
-  const handleSaveNote = async () => {
-    console.log("──────── NOTE SAVE START ────────");
-
-    console.log("student:", student);
-    console.log("project:", project);
-    console.log("stage:", stage);
-    console.log("captureType:", captureType);
-
-    console.log("student.id:", student?.id);
-    console.log("student.name:", student?.name);
-
-    if (!note.trim()) {
-      console.log("❌ Empty note");
+    if (dbError) {
+      alert(`Database save failed: ${dbError.message}`);
+      setSaving(false);
       return;
     }
 
+    handleSuccessUpload();
+  };
+
+  // ── Text Note Handling ──────────────────────────────────────────
+  const handleSaveNote = async () => {
+    if (!note.trim()) return;
     setSaving(true);
 
-    const payload = {
-      id: generateId(),
-
-      project_id: project?.id,
-
-      text: note.trim(),
-
-      stage: stage?.name,
-
-      type: captureType?.name,
-
-      image_path: null,
-
-      timestamp: Date.now(),
-
-      user_id: student?.id,
-
-      user_name: student?.name,
-
-      source: "mobile",
-    };
-
-    console.log("📦 PAYLOAD:", payload);
-
     try {
-      const { data, error } = await supabase
-        .from("captures")
-        .insert(payload)
-        .select();
+      const { error } = await supabase.from("updates").insert({
+        id: generateId(),
+        project_id: project?.id || null,
+        title: `${captureType.emoji} Text Note - ${stage.name}`,
+        content: note.trim(),
+        status: "sent",
+        update_type: "progress",
+        photo_urls: [],
+        video_urls: [],
+        created_at: new Date().toISOString(),
+        user_id: student?.id,
+        user_name: student?.name,
+      });
 
-      console.log("✅ INSERT DATA:", data);
-
-      console.log("❌ INSERT ERROR:", error);
-
-      if (error) {
-        alert("Insert failed: " + error.message);
-
-        console.error("FULL ERROR:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
-
-        setSaving(false);
-        return;
-      }
-
-      console.log("✅ SAVE SUCCESS");
-
-      setSavedCount((c) => c + 1);
-
-      setNote("");
-
-      setMode("menu");
+      if (error) throw error;
+      handleSuccessUpload();
     } catch (err) {
-      console.error("🔥 CATCH ERROR:", err);
-
-      alert("Unexpected error");
+      alert("Error saving note: " + err.message);
+      setSaving(false);
     }
-
-    setSaving(false);
-
-    console.log("──────── NOTE SAVE END ────────");
   };
+
   const stopStream = () => {
     stream?.getTracks().forEach((t) => t.stop());
     setStream(null);
@@ -286,10 +248,9 @@ export default function Session({ student, project, stage, onStop }) {
     setMode("menu");
   };
 
-  // ── Render ─────────────────────────────────────────────────────
   return (
-    <div>
-      {/* Session header */}
+    <div style={{ padding: "16px", background: "#0b0b10", color: "#fff" }}>
+      {/* ── SECTION 1: HEADER BLOCK ────────────────────────────── */}
       <div
         style={{
           display: "flex",
@@ -299,11 +260,11 @@ export default function Session({ student, project, stage, onStop }) {
         }}
       >
         <div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>
             {stage.emoji} {stage.name}
           </div>
           <div style={{ fontSize: 13, color: "#666", marginTop: 2 }}>
-            {project.name} · {savedCount} saved
+            {project.name} · {savedCount} updates sent
           </div>
         </div>
         <button
@@ -311,158 +272,215 @@ export default function Session({ student, project, stage, onStop }) {
           style={{ width: "auto", padding: "8px 16px" }}
           onClick={onStop}
         >
-          Stop
+          Stop Session
         </button>
       </div>
 
-      {/* Camera/video view */}
-      {(mode === "photo" || mode === "video") && (
-        <div style={{ marginBottom: 16 }}>
-          <video
-            ref={videoRef}
-            style={{
-              width: "100%",
-              borderRadius: 12,
-              background: "#000",
-              maxHeight: 300,
-              objectFit: "cover",
-            }}
-            muted
-            playsInline
-          />
-          {mode === "video" && recording && (
-            <div
+      {/* ── SECTION 2: INTERACTIVE ACTION CONTROLS ───────────────── */}
+      <div
+        style={{
+          background: "#111118",
+          border: "1px solid #222230",
+          borderRadius: 12,
+          padding: 14,
+        }}
+      >
+        {/* Sub-view Media Output Windows */}
+        {(mode === "photo" || mode === "video") && (
+          <div style={{ marginBottom: 16 }}>
+            <video
+              ref={videoRef}
               style={{
-                textAlign: "center",
-                marginTop: 8,
-                color: "#ef4444",
-                fontWeight: 600,
-                fontSize: 14,
+                width: "100%",
+                borderRadius: 12,
+                background: "#000",
+                maxHeight: 260,
+                objectFit: "cover",
               }}
-            >
-              ● Recording — {timeLeft}s left
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Capture type selector */}
-      {mode !== "menu" && (
-        <div style={{ marginBottom: 12 }}>
-          <div className="label">Capture Type</div>
-          <div
-            style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}
-          >
-            {CAPTURE_TYPES.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setCaptureType(t)}
+              muted
+              playsInline
+            />
+            {mode === "video" && recording && (
+              <div
                 style={{
-                  padding: "6px 12px",
-                  borderRadius: 20,
-                  border:
-                    captureType.id === t.id
-                      ? "1.5px solid #7c3aed"
-                      : "1.5px solid #333",
-                  background:
-                    captureType.id === t.id
-                      ? "rgba(124,58,237,0.15)"
-                      : "#1a1a24",
-                  color: captureType.id === t.id ? "#a78bfa" : "#888",
-                  fontSize: 12,
-                  cursor: "pointer",
+                  textAlign: "center",
+                  marginTop: 8,
+                  color: "#ef4444",
+                  fontWeight: 600,
+                  fontSize: 13,
                 }}
               >
-                {t.emoji} {t.name}
-              </button>
-            ))}
+                ● Recording — {timeLeft}s left
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Note input */}
-      {mode !== "menu" && (
-        <div style={{ marginBottom: 12 }}>
-          <div className="label">Add Note</div>
-          <textarea
-            className="input"
-            rows={3}
-            placeholder="What are you observing? What happened?"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            style={{ marginTop: 6 }}
-          />
-        </div>
-      )}
-
-      {/* Action buttons */}
-      {mode === "menu" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <button className="btn btn-primary" onClick={handleTakePhoto}>
-            📷 Take Photo
-          </button>
-          <button className="btn btn-primary" onClick={handleStartVideo}>
-            🎥 Record Video
-          </button>
-          <button className="btn btn-ghost" onClick={() => setMode("note")}>
-            ✍️ Write Note
-          </button>
-        </div>
-      )}
-
-      {mode === "photo" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <button
-            className="btn btn-success"
-            onClick={handleCapturePhoto}
-            disabled={saving}
-          >
-            {saving ? "Saving..." : "📸 Capture Photo"}
-          </button>
-          <button className="btn btn-ghost" onClick={handleBack}>
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {mode === "video" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {!recording ? (
-            <button className="btn btn-danger" onClick={handleRecordVideo}>
-              ● Start Recording
-            </button>
-          ) : (
-            <button className="btn btn-ghost" onClick={handleStopRecording}>
-              ■ Stop Recording
-            </button>
-          )}
-          {saving && (
-            <div style={{ textAlign: "center", color: "#888", fontSize: 13 }}>
-              Uploading video...
+        {/* Global Metadata Form Input Panels */}
+        {mode !== "menu" && (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <div className="label">Capture Context Tag</div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  marginTop: 6,
+                  flexWrap: "wrap",
+                }}
+              >
+                {CAPTURE_TYPES.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setCaptureType(t)}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 20,
+                      border:
+                        captureType.id === t.id
+                          ? "1.5px solid #7c3aed"
+                          : "1.5px solid #333",
+                      background:
+                        captureType.id === t.id
+                          ? "rgba(124,58,237,0.15)"
+                          : "#1a1a24",
+                      color: captureType.id === t.id ? "#a78bfa" : "#888",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {t.emoji} {t.name}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
-          {!recording && !saving && (
-            <button className="btn btn-ghost" onClick={handleBack}>
+
+            <div style={{ marginBottom: 14 }}>
+              <div className="label">Add Notes / Log Details</div>
+              <textarea
+                className="input"
+                rows={3}
+                placeholder="What are you currently processing?"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                style={{
+                  marginTop: 6,
+                  width: "100%",
+                  background: "#0b0b10",
+                  color: "#fff",
+                  border: "1px solid #333",
+                  borderRadius: 6,
+                  padding: 8,
+                }}
+              />
+            </div>
+          </>
+        )}
+
+        {/* Action Form Conditionals */}
+        {mode === "menu" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <button
+              className="btn btn-primary"
+              onClick={handleTakePhoto}
+              style={{ width: "100%", padding: "12px" }}
+            >
+              📷 Take Media Photo
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleStartVideo}
+              style={{ width: "100%", padding: "12px" }}
+            >
+              🎥 Record Video Entry
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setMode("note")}
+              style={{ width: "100%", padding: "12px", background: "#1a1a24" }}
+            >
+              ✍️ Create Text Note Log
+            </button>
+          </div>
+        )}
+
+        {mode === "photo" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button
+              className="btn btn-success"
+              onClick={handleCapturePhoto}
+              disabled={saving}
+            >
+              {saving ? "Uploading Entry..." : "📸 Snap & Post Update"}
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={handleBack}
+              style={{ background: "#222" }}
+            >
               Cancel
             </button>
-          )}
-        </div>
-      )}
+          </div>
+        )}
 
-      {mode === "note" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <button
-            className="btn btn-success"
-            onClick={handleSaveNote}
-            disabled={saving || !note.trim()}
-          >
-            {saving ? "Saving..." : "✅ Save Note"}
-          </button>
-          <button className="btn btn-ghost" onClick={handleBack}>
-            Cancel
-          </button>
-        </div>
-      )}
+        {mode === "video" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {!recording ? (
+              <button className="btn btn-danger" onClick={handleRecordVideo}>
+                ● Start Recording
+              </button>
+            ) : (
+              <button
+                className="btn btn-ghost"
+                onClick={handleStopRecording}
+                style={{ background: "#ef4444", color: "#fff" }}
+              >
+                ■ End & Process Recording
+              </button>
+            )}
+            {saving && (
+              <div
+                style={{
+                  textAlign: "center",
+                  color: "#a78bfa",
+                  fontSize: 13,
+                  padding: 4,
+                }}
+              >
+                Uploading video stream file...
+              </div>
+            )}
+            {!recording && !saving && (
+              <button
+                className="btn btn-ghost"
+                onClick={handleBack}
+                style={{ background: "#222" }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        )}
+
+        {mode === "note" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <button
+              className="btn btn-success"
+              onClick={handleSaveNote}
+              disabled={saving || !note.trim()}
+            >
+              {saving ? "Saving note..." : "✅ Submit Text Update"}
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={handleBack}
+              style={{ background: "#222" }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,9 +1,7 @@
 export const STUDENTS = [
-  { id: "subham_kumar", name: "Subham Kumar", role: "student" },
   { id: "aditya_singh", name: "Aditya Singh", role: "student" },
-  { id: "amarajeet_kumar", name: "Amarajeet Kumar", role: "student" },
-  { id: "puneet_kumar", name: "Puneet Kumar", role: "student" },
-  { id: "abhijeet_singh", name: "Abhijeet Singh", role: "student" },
+
+  { id: "evatronix_lab", name: "evatronix lab", role: "student" },
 ];
 
 export const PROFESSORS = [

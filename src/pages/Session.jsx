@@ -258,86 +258,6 @@ export default function Session({
     }
   };
 
-  // ── Note input shared component ─────────────────────────────
-  const NoteInput = () => (
-    <div style={{ marginBottom: 16 }}>
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: "#888",
-          textTransform: "uppercase",
-          letterSpacing: 0.5,
-          marginBottom: 8,
-        }}
-      >
-        Add Note
-      </div>
-      <textarea
-        className="input"
-        rows={4}
-        placeholder="Type your notes or description here..."
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        style={{
-          width: "100%",
-          background: "#14141c",
-          color: "#fff",
-          border: "1px solid #2a2a3a",
-          borderRadius: 10,
-          padding: "12px 14px",
-          fontSize: 14,
-          lineHeight: "1.5",
-          resize: "vertical",
-          outline: "none",
-          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
-          fontFamily: "inherit",
-        }}
-        autoFocus
-      />
-    </div>
-  );
-
-  const CaptureTypeSelector = () => (
-    <div style={{ marginBottom: 16 }}>
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: "#888",
-          textTransform: "uppercase",
-          letterSpacing: 0.5,
-          marginBottom: 8,
-        }}
-      >
-        Type
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {CAPTURE_TYPES.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setCaptureType(t)}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 20,
-              border:
-                captureType.id === t.id
-                  ? "1.5px solid #7c3aed"
-                  : "1.5px solid #333",
-              background:
-                captureType.id === t.id ? "rgba(124,58,237,0.15)" : "#1a1a24",
-              color: captureType.id === t.id ? "#a78bfa" : "#888",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            {t.emoji} {t.name}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
   // ══════════════════════════════════════════════════════════════
   // FULLSCREEN CAMERA — Photo
   // ══════════════════════════════════════════════════════════════
@@ -474,8 +394,84 @@ export default function Session({
             />
           )}
 
-          <CaptureTypeSelector />
-          <NoteInput />
+          {/* Inlined Type Selector */}
+          <div style={{ marginBottom: 16 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#888",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                marginBottom: 8,
+              }}
+            >
+              Type
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {CAPTURE_TYPES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setCaptureType(t)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 20,
+                    border:
+                      captureType.id === t.id
+                        ? "1.5px solid #7c3aed"
+                        : "1.5px solid #333",
+                    background:
+                      captureType.id === t.id
+                        ? "rgba(124,58,237,0.15)"
+                        : "#1a1a24",
+                    color: captureType.id === t.id ? "#a78bfa" : "#888",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  {t.emoji} {t.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Inlined Note Input */}
+          <div style={{ marginBottom: 16 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#888",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                marginBottom: 8,
+              }}
+            >
+              Add Note
+            </div>
+            <textarea
+              className="input"
+              rows={4}
+              placeholder="Type your notes or description here..."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              style={{
+                width: "100%",
+                background: "#14141c",
+                color: "#fff",
+                border: "1px solid #2a2a3a",
+                borderRadius: 10,
+                padding: "12px 14px",
+                fontSize: 14,
+                lineHeight: "1.5",
+                resize: "vertical",
+                outline: "none",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
+                fontFamily: "inherit",
+              }}
+              autoFocus
+            />
+          </div>
 
           <button
             className="btn btn-success"
@@ -670,8 +666,84 @@ export default function Session({
             </div>
           </div>
 
-          <CaptureTypeSelector />
-          <NoteInput />
+          {/* Inlined Type Selector */}
+          <div style={{ marginBottom: 16 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#888",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                marginBottom: 8,
+              }}
+            >
+              Type
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {CAPTURE_TYPES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setCaptureType(t)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 20,
+                    border:
+                      captureType.id === t.id
+                        ? "1.5px solid #7c3aed"
+                        : "1.5px solid #333",
+                    background:
+                      captureType.id === t.id
+                        ? "rgba(124,58,237,0.15)"
+                        : "#1a1a24",
+                    color: captureType.id === t.id ? "#a78bfa" : "#888",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  {t.emoji} {t.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Inlined Note Input */}
+          <div style={{ marginBottom: 16 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#888",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                marginBottom: 8,
+              }}
+            >
+              Add Note
+            </div>
+            <textarea
+              className="input"
+              rows={4}
+              placeholder="Type your notes or description here..."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              style={{
+                width: "100%",
+                background: "#14141c",
+                color: "#fff",
+                border: "1px solid #2a2a3a",
+                borderRadius: 10,
+                padding: "12px 14px",
+                fontSize: 14,
+                lineHeight: "1.5",
+                resize: "vertical",
+                outline: "none",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
+                fontFamily: "inherit",
+              }}
+              autoFocus
+            />
+          </div>
 
           <button
             className="btn btn-success"
@@ -730,8 +802,84 @@ export default function Session({
         </div>
 
         <div style={{ padding: 16, flex: 1 }}>
-          <CaptureTypeSelector />
-          <NoteInput />
+          {/* Inlined Type Selector */}
+          <div style={{ marginBottom: 16 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#888",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                marginBottom: 8,
+              }}
+            >
+              Type
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {CAPTURE_TYPES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setCaptureType(t)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 20,
+                    border:
+                      captureType.id === t.id
+                        ? "1.5px solid #7c3aed"
+                        : "1.5px solid #333",
+                    background:
+                      captureType.id === t.id
+                        ? "rgba(124,58,237,0.15)"
+                        : "#1a1a24",
+                    color: captureType.id === t.id ? "#a78bfa" : "#888",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  {t.emoji} {t.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Inlined Note Input */}
+          <div style={{ marginBottom: 16 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#888",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                marginBottom: 8,
+              }}
+            >
+              Add Note
+            </div>
+            <textarea
+              className="input"
+              rows={4}
+              placeholder="Type your notes or description here..."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              style={{
+                width: "100%",
+                background: "#14141c",
+                color: "#fff",
+                border: "1px solid #2a2a3a",
+                borderRadius: 10,
+                padding: "12px 14px",
+                fontSize: 14,
+                lineHeight: "1.5",
+                resize: "vertical",
+                outline: "none",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
+                fontFamily: "inherit",
+              }}
+              autoFocus
+            />
+          </div>
 
           <button
             className="btn btn-success"
